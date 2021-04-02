@@ -44,8 +44,8 @@ device = "cuda" if torch.cuda.is_available() else "cpu"
 lr = 3e-4
 z_dim = 64 # 128, 256
 image_dim = 28*28*1
-batch_size = 32
-num_epochs = 50
+batch_size = 1024
+num_epochs = 200
 
 disc = Discriminator(image_dim).to(device)
 gen = Generator(z_dim, image_dim).to(device)
@@ -66,7 +66,9 @@ print("start training")
 for epoch in range(num_epochs):
     print("start epoch : {}".format(epoch))
     for batch_idx, (real, _) in enumerate(loader):
+        print("real : {}".format(real.shape))
         real = real.view(-1, 784).to(device)
+        print(real.shape)
         batch_size = real.shape[0]
 
         ### train Discrimiator : max log(D(real)) + log(1-D(G(z)) z -> random noise
