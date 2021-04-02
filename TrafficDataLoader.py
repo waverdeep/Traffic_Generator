@@ -1,5 +1,9 @@
+from torch.utils.data import Dataset, DataLoader
 import glob
 import os
+import natsort
+import pandas as pd
+import torch
 
 '''
 Dataset
@@ -11,14 +15,22 @@ Dataset
 
 def get_all_file_path(input_dir, file_extension='csv'):
     temp = glob.glob(os.path.join(input_dir, '**', '*.{}'.format(file_extension)), recursive=True)
+    temp = natsort.natsorted(temp)
     return temp
 
 
-def get_filename(input_filepath):
-    return input_filepath.split('/')[-1]
+class AmazonPrimeDataset(Dataset):
+    def __init__(self, input_dir):
+        self.filelist = get_all_file_path(input_dir, file_extension='csv')
+
+    def __len__(self):
+        return len(self.filelist)
+
+    def __getitem__(self, idx):
+        item = pd.read_csv(self.filelist[idx])
+        item = torch.tensor(item['DL_bitrate'].values, dtype=torch.float32)
+        # item = item.unsqueeze(0)
+        return item
 
 
-def get_pure_filename(input_filepath):
-    temp = input_filepath.split('/')[-1]
-    return temp.split('.')[0]
 
