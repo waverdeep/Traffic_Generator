@@ -1,6 +1,5 @@
 import glob
 import os
-import csv
 import natsort
 import pandas as pd
 
