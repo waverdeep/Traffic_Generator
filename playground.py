@@ -8,9 +8,9 @@ import matplotlib.pyplot as plt
 
 ### setup hyperparameters
 lr = 3e-4
-z_dim = 1000 # fix it
+z_dim = 100 # fix it
 input_dim = 1259 # fix it
-batch_size = 2048
+batch_size = 4096
 num_epochs = 1000
 step = 0
 
@@ -19,13 +19,14 @@ def setup_gpu():
 
 
 device = setup_gpu()
+print("USE GPU : {}".format(device))
 
 ### model load
-discriminator = model.Discriminator(input_dim).to(device=device)
-generator = model.Generator(z_dim, input_dim).to(device=device)
+discriminator = model.Discriminator_V2(input_dim).to(device=device)
+generator = model.Generator_V2(z_dim, input_dim).to(device=device)
 optimizer_discriminator = optim.Adam(discriminator.parameters(), lr=lr)
 optimizer_generator = optim.Adam(generator.parameters(), lr=lr)
-criterion = nn.BCELoss()
+criterion = nn.BCELoss().cuda()
 
 fixed_noise = torch.randn((batch_size, z_dim)).to(device)
 
@@ -43,7 +44,7 @@ for epoch in range(num_epochs):
         ### train Discriminator
         noise = torch.randn(batch_size, z_dim).to(device)
         fake = generator(noise)
-
+        fake = torch.abs(fake)
         discriminator_real = discriminator(real)
         lossD_real = criterion(discriminator_real, torch.ones_like(discriminator_real))
         discriminator_fake = discriminator(fake)
@@ -65,16 +66,25 @@ for epoch in range(num_epochs):
                               Loss D: {lossD:.4f}, loss G: {lossG:.4f}"
             )
             with torch.no_grad():
+                fake_rand = generator(torch.randn((batch_size, z_dim)).to(device)).cpu()
                 fake = generator(fixed_noise).cpu()
                 data = real.cpu()
-
+                fake = torch.abs(fake)
+                fake_rand = torch.abs(fake_rand)
                 plt.figure(figsize=(24, 12))
+                plt.title('fake_fixed')
                 plt.plot(fake[0])
-                plt.savefig('dataset/reformat_amazon/result/fake/fake_{}.png'.format(step))
+                plt.savefig('dataset/reformat_amazon/result_V2/fake/fake_{}.png'.format(step))
                 plt.show()
                 plt.figure(figsize=(24, 12))
+                plt.title('fake_random')
+                plt.plot(fake_rand[0])
+                plt.savefig('dataset/reformat_amazon/result_V2/fake/fake_rand_{}.png'.format(step))
+                plt.show()
+                plt.figure(figsize=(24, 12))
+                plt.title('real')
                 plt.plot(data[0])
-                plt.savefig('dataset/reformat_amazon/result/real/real_{}.png'.format(step))
+                plt.savefig('dataset/reformat_amazon/result_V2/real/real_{}.png'.format(step))
                 plt.show()
                 step += 1
 
@@ -85,5 +95,5 @@ for epoch in range(num_epochs):
             'discriminator': discriminator,
             'generator_state_dict': generator.state_dict(),
             'discriminator_state_dict': discriminator.state_dict(),
-        }, "model_checkpoint_{}.pt".format(epoch))
+        }, "ataset/reformat_amazon/result_V2/checkpoints/model_checkpoint_{}.pt".format(epoch))
 
