@@ -65,6 +65,7 @@ def generate_fake_samples(generator, latent_dim, n):
     x_input = generate_latent_points(latent_dim, n)
     # predict outputs
     X = generator(x_input)
+
     # create class labels
     y = zeros((n, 1))
     return X, y
@@ -102,6 +103,9 @@ for i in range(100000):
     discriminator.zero_grad()
     x_real, y_real = generate_real_samples(half_batch)
     x_fake, y_fake = generate_fake_samples(generator, latent_dim, half_batch)
+    print("x_real : {}".format(x_real.shape))
+    print("x_fake : {}".format(x_fake.shape))
+
     x_real_decision = discriminator(x_real)
     d_real_error = criterion(x_real_decision, torch.tensor(y_real, dtype=torch.float))
     d_real_error.backward()
@@ -112,7 +116,7 @@ for i in range(100000):
 
     generator.zero_grad()
     x_gan = generate_latent_points(latent_dim=latent_dim, n=1024)
-    y_gan = ones((1024, 1))
+    y_gan = ones((512, 1))
     x_gan = generator(x_gan)
     x_gan_decision = discriminator(x_gan)
     x_gan_error = criterion(x_gan_decision, torch.tensor(y_gan, dtype=torch.float))
