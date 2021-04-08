@@ -1,99 +1,195 @@
 import torch
+import TrafficDataLoader
+from torch.utils.data import DataLoader
 import model
 import torch.optim as optim
 import torch.nn as nn
-import TrafficDataLoader
-from torch.utils.data import Dataset, DataLoader
+import numpy as np
 import matplotlib.pyplot as plt
+from numpy import zeros
+from numpy import ones
 
-### setup hyperparameters
-lr = 3e-4
-z_dim = 100 # fix it
-input_dim = 1259 # fix it
-batch_size = 4096
-num_epochs = 1000
-step = 0
 
 def setup_gpu():
     return "cuda" if torch.cuda.is_available() else "cpu"
 
 
-device = setup_gpu()
-print("USE GPU : {}".format(device))
+def is_gpu():
+    return torch.cuda.is_available()
 
-### model load
-discriminator = model.Discriminator_V2(input_dim).to(device=device)
-generator = model.Generator_V2(z_dim, input_dim).to(device=device)
-optimizer_discriminator = optim.Adam(discriminator.parameters(), lr=lr)
-optimizer_generator = optim.Adam(generator.parameters(), lr=lr)
-criterion = nn.BCELoss().cuda()
 
-fixed_noise = torch.randn((batch_size, z_dim)).to(device)
+def load_amazon_dataset(input_dir, batch_size):
+    amazon_dataset = TrafficDataLoader.AmazonPrimeDataset(input_dir=input_dir)
+    amazon_dataloader = DataLoader(amazon_dataset, batch_size=batch_size, shuffle=True, num_workers=8)
+    return amazon_dataloader
 
-### dataset
-amazon_dataset = TrafficDataLoader.AmazonPrimeDataset('dataset/reformat_amazon/static')
-loader = DataLoader(amazon_dataset, batch_size=batch_size, shuffle=True)
 
-print("start training")
-for epoch in range(num_epochs):
-    print("start epoch : {}".format(epoch))
-    for batch_idx, real in enumerate(loader):
+def setup_model(latent_dim, input_dim, gpu=True):
+    generator = model.Generator(latent_dim=latent_dim, output_dim=input_dim)
+    discriminator = model.Discriminator(input_dim=input_dim)
+    if gpu:
+        generator = generator.cuda()
+        discriminator = discriminator.cuda()
+    return generator, discriminator
 
-        real = real.to(device)
-        batch_size = real.shape[0]
-        ### train Discriminator
-        noise = torch.randn(batch_size, z_dim).to(device)
-        fake = generator(noise)
-        fake = torch.abs(fake)
-        discriminator_real = discriminator(real)
-        lossD_real = criterion(discriminator_real, torch.ones_like(discriminator_real))
-        discriminator_fake = discriminator(fake)
-        lossD_fake = criterion(discriminator_fake, torch.ones_like(discriminator_fake))
-        lossD = (lossD_real + lossD_fake)/2
-        discriminator.zero_grad()
-        lossD.backward(retain_graph=True)
-        optimizer_discriminator.step()
-        ### train generator
-        output = discriminator(fake)
-        lossG = criterion(output, torch.ones_like(output))
-        generator.zero_grad()
-        lossG.backward()
-        optimizer_generator.step()
 
-        if batch_idx == 0:
-            print(
-                f"Epoch [{epoch}/{num_epochs}] Batch {batch_idx}/{len(loader)} \
-                              Loss D: {lossD:.4f}, loss G: {lossG:.4f}"
-            )
-            with torch.no_grad():
-                fake_rand = generator(torch.randn((batch_size, z_dim)).to(device)).cpu()
-                fake = generator(fixed_noise).cpu()
-                data = real.cpu()
-                fake = torch.abs(fake)
-                fake_rand = torch.abs(fake_rand)
-                plt.figure(figsize=(24, 12))
-                plt.title('fake_fixed')
-                plt.plot(fake[0])
-                plt.savefig('dataset/reformat_amazon/result_V2/fake/fake_{}.png'.format(step))
-                plt.show()
-                plt.figure(figsize=(24, 12))
-                plt.title('fake_random')
-                plt.plot(fake_rand[0])
-                plt.savefig('dataset/reformat_amazon/result_V2/fake/fake_rand_{}.png'.format(step))
-                plt.show()
-                plt.figure(figsize=(24, 12))
-                plt.title('real')
-                plt.plot(data[0])
-                plt.savefig('dataset/reformat_amazon/result_V2/real/real_{}.png'.format(step))
-                plt.show()
-                step += 1
+def setup_optimizer(generator_model, discriminator_model):
+    generator_optimizer = optim.Adam(generator_model.parameters())
+    discriminator_optimizer = optim.Adam(discriminator_model.parameters())
+    return generator_optimizer, discriminator_optimizer
 
-    if epoch % 10 == 0:
-        torch.save({
-            'epoch': epoch,
-            'generator': generator,
-            'discriminator': discriminator,
-            'generator_state_dict': generator.state_dict(),
-            'discriminator_state_dict': discriminator.state_dict(),
-        }, "ataset/reformat_amazon/result_V2/checkpoints/model_checkpoint_{}.pt".format(epoch))
+
+def setup_criterion(gpu=True):
+    criterion = nn.BCELoss()
+    if gpu:
+        criterion = criterion.cuda()
+    return criterion
+
+
+def denormalize(x):
+    return 0.5 * (x * 200000 - x * 0 + 200000 + 0)
+
+
+def generate_latent_points(latent_dim, n): # n : batch
+    # generate points in the latent space
+    # x_input = torch.randn(batch_size, latent_dim).cuda()
+    # print(x_input.shape)
+    # reshape into a batch of inputs for the network
+    x_input = np.random.randn(latent_dim * n)
+    x_input = x_input.reshape(n, latent_dim)
+    # x_input = denormalize(x_input)
+    x_input = torch.tensor(x_input, dtype=torch.float).cuda()
+    return x_input
+
+
+def generate_fake_samples(generator, latent_dim, n):
+    # generate points in latent space
+    x_input = generate_latent_points(latent_dim, n)
+    # predict outputs
+    X = generator(x_input)
+    # create class labels
+    y = np.zeros((n, 1))
+    y = torch.tensor(y, dtype=torch.float).cuda()
+    return X, y
+
+
+def make_real_y(n):
+    y = ones((n, 1))
+    return torch.tensor(y, dtype=torch.float)
+
+
+def train(n_epochs, n_batch_size, loader, generator_model, discriminator_model, latent_dim):
+    step = 0
+    for epoch in range(n_epochs):
+        print('start epoch [{}] ->'.format(epoch))
+        for batch_idx, (real, y) in enumerate(loader):
+            for line in real:
+                real_x = line.unsqueeze(1)
+                real_y = make_real_y(len(real_x))
+
+                real_x = real_x.cuda()
+                real_y = real_y.cuda()
+
+                fake_x, fake_y = generate_fake_samples(generator_model, latent_dim, len(real_x))
+
+                discriminator_model.zero_grad()
+                real_x_decision = discriminator_model(real_x)
+                d_real_error = criterion(real_x_decision, real_y)
+                d_real_error.backward()
+
+                fake_x_decision = discriminator_model(fake_x)
+                d_fake_error = criterion(fake_x_decision, fake_y)
+                d_fake_error.backward()
+                discriminator_optimizer.step()
+
+                generator_model.zero_grad()
+                x_gan = generate_latent_points(latent_dim, 1259)
+                y_gan = np.ones((1259, 1))
+                y_gan = torch.tensor(y_gan, dtype=torch.float).cuda()
+                x_gan = generator_model(x_gan)
+                x_gan_decision = discriminator_model(x_gan)
+                x_gan_error = criterion(x_gan_decision, y_gan)
+                x_gan_error.backward()
+                generator_optimizer.step()
+            # real_x = real.cuda()
+            # print("real : {}".format(real_x.shape))
+            # real_y = y.cuda()
+            # fake_x, fake_y = generate_fake_samples(generator_model, latent_dim, n_batch_size)
+            # print("fake : {}".format(fake_x.shape))
+            # discriminator_model.zero_grad()
+            # real_x_decision = discriminator_model(real_x)
+            # d_real_error = criterion(real_x_decision, real_y)
+            # d_real_error.backward()
+            #
+            # fake_x_decision = discriminator_model(fake_x)
+            # d_fake_error = criterion(fake_x_decision, fake_y)
+            # d_fake_error.backward()
+            # discriminator_optimizer.step()
+            #
+            # generator_model.zero_grad()
+            # x_gan = generate_latent_points(latent_dim, n_batch_size)
+            # y_gan = np.ones((n_batch_size, 1))
+            # y_gan = torch.tensor(y_gan, dtype=torch.float).cuda()
+            # x_gan = generator_model(x_gan)
+            # x_gan_decision = discriminator_model(x_gan)
+            # x_gan_error = criterion(x_gan_decision, y_gan)
+            # x_gan_error.backward()
+            # generator_optimizer.step()
+
+            if batch_idx == 0:
+                print(
+                    f"Epoch [{epoch}/{n_epochs}] Batch {batch_idx}/{len(loader)} \
+                                  Loss D: {d_real_error:.6f}, loss G: {x_gan_error:.6f}"
+                )
+
+                with torch.no_grad():
+                    x_real = real_x
+                    y_real = real_y
+                    # evaluate discriminator on real examples
+                    _ = discriminator_model(x_real)
+                    # prepare fake examples
+                    x_fake, y_fake = generate_fake_samples(generator_model, latent_dim, 1259)
+                    # evaluate discriminator on fake examples
+                    # scatter plot real and fake data points
+                    x_fake = x_fake.cpu()
+                    y_fake = y_fake.cpu()
+                    x_real = x_real.cpu()
+                    y_real = y_real.cpu()
+                    plt.plot(x_real[:, 0], color='red', alpha=0.4)
+                    plt.plot(x_fake[:, 0], color='blue', alpha=0.4)
+                    plt.savefig('dataset/reformat_amazon/result_V2/fake/fake_{}.png'.format(str(step).zfill(4)))
+                    plt.show()
+
+                    plt.figure(figsize=(24, 12))
+                    plt.title('fake_fixed')
+                    plt.plot(x_fake[:, 0])
+                    plt.savefig('dataset/reformat_amazon/result_V2/fake_only/fake_only_{}.png'.format(str(step).zfill(4)))
+                    plt.show()
+
+                step = step+1
+
+        if epoch % 10 == 0:
+            torch.save({
+                'epoch': epoch,
+                'generator': generator_model,
+                'discriminator': discriminator_model,
+                'generator_state_dict': generator_model.state_dict(),
+                'discriminator_state_dict': discriminator_model.state_dict(),
+            }, "dataset/reformat_amazon/result_V2/checkpoints/model_checkpoint_{}.pt".format(epoch))
+
+
+if __name__ == '__main__':
+    input_dir = 'dataset/reformat_amazon/static'
+    batch_size = 6000
+    latent_dim = 5
+    input_dim = 1
+    n_epochs = 1000
+    device = setup_gpu()
+    print("device check : {}".format(device))
+    amazon_dataloader = load_amazon_dataset(input_dir, batch_size)
+    generator_model, discriminator_model = setup_model(latent_dim, input_dim, device)
+    generator_optimizer, discriminator_optimizer = setup_optimizer(generator_model, discriminator_model)
+    criterion = setup_criterion(device)
+    train(n_epochs, batch_size, amazon_dataloader, generator_model, discriminator_model, latent_dim)
+
 
