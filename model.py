@@ -6,6 +6,7 @@ import torch.nn as nn
 
 class Generator(nn.Module):
     def __init__(self, latent_dim, output_dim=2):
+        super(Generator, self).__init__()
         self.linear01 = nn.Linear(latent_dim, 15)
         self.prelu01 = nn.PReLU()
         self.linear02 = nn.Linear(15, output_dim)
@@ -17,6 +18,7 @@ class Generator(nn.Module):
 
 class Discriminator(nn.Module):
     def __init__(self, input_dim=2):
+        super(Discriminator, self).__init__()
         self.linear01 = nn.Linear(input_dim, 25)
         self.prelu01 = nn.PReLU()
         self.linear02 = nn.Linear(25, 1)
