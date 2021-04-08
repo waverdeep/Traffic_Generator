@@ -4,6 +4,7 @@ import os
 import natsort
 import pandas as pd
 import torch
+import numpy as np
 
 '''
 Dataset
@@ -29,8 +30,8 @@ class AmazonPrimeDataset(Dataset):
     def __getitem__(self, idx):
         item = pd.read_csv(self.filelist[idx])
         item = torch.tensor(item['DL_bitrate'].values, dtype=torch.float32)
-        # item = item.unsqueeze(0)
-        return item
+        y = torch.tensor(1, dtype=torch.float)
+        return item, y
 
 
 
